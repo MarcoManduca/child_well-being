@@ -17,7 +17,7 @@ def normalize_minmax(
     df : pl.DataFrame
         DataFrame with columns corresponding to the indicator codes.
     indicators : dict, optional
-        Configuration dictionary. Default: global INDICATORS.
+        Configuration dictionary.
     suffix : str
         Suffix for the normalized columns (default: "_norm").
     use_robust_bounds : bool
@@ -90,8 +90,8 @@ def discretize(
     n_levels : int
         Number of ordinal levels (default: 3).
     method : str
-        "quantile" → cut-point based on the quantiles of the distribution
-        "equal_width" → cut-point equidistanti su [0, 1]
+        - "quantile": cut-point based on the quantiles of the distribution
+        - "equal_width": equidistant cut-point on [0, 1]
     suffix : str
         Suffix for the discretized columns (default: "_ord").
 
