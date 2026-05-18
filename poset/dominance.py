@@ -36,18 +36,15 @@ def BLSDominance(poset: POSet) -> np.ndarray:
     >>> pos = POSet(['a','b','c','d'], [('a','b'),('c','b'),('b','d')])
     >>> D = BLSDominance(pos)
     """
-    elements = poset.elements
     n = poset.n
-    mat = poset.dominance_matrix()  # mat[i,j] = True iff i ≤ j
+    mat = poset.dominance_matrix().astype(np.float64)  # mat[i,j] = 1.0 iff i ≤ j
 
-    bls = np.zeros((n, n))
+    # upset(i)  = mat[i, :]   → row i,  shape (n,)
+    # downset(k) = mat[:, k]  → col k,  shape (n,)
+    # |upset(i) ∩ downset(k)| = dot product of row i with col k
+    # BLS[i,k] = (mat[i,:] · mat[:,k]) / n  for all i,k
+    # → BLS = mat @ mat / n
 
-    for i in range(n):
-        # upset of elements[i]: all j such that i ≤ j
-        up_i = set(j for j in range(n) if mat[i, j])
-        for k in range(n):
-            # downset of elements[k]: all j such that j ≤ k
-            down_k = set(j for j in range(n) if mat[j, k])
-            bls[i, k] = len(up_i & down_k) / n
+    bls = (mat @ mat) / n
 
     return bls

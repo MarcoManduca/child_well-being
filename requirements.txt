@@ -4,5 +4,7 @@ numpy==2.4.4
 pandas==2.3.3
 matplotlib==3.10.9
 seaborn==0.13.2
-ipykernel
-networkx
+notebook=7.5.6
+jupyter=1.1.1
+networkx=3.6.1
+rpy2=3.6.7
