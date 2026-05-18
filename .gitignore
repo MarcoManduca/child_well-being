@@ -18,3 +18,10 @@ venv.bak/
 
 # macOS
 .DS_Store
+
+data/*.csv
+data/*.txt
+
+r_library/
+
+notebooks/automated_validation.R
