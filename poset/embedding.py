@@ -4,20 +4,31 @@ embedding.py - Bidimensional representation of multidimensional ordinal binary d
 Implements:
   - BidimentionalPosetRepresentation  : representation from a given variable priority
   - OptimalBidimensionalEmbedding     : find the optimal representation over all permutations
+
+Reference:
+    Arcagni A., Fattore M. (2014).
+    PARSEC: An R Package for Poset-Based Analysis of Multidimensional Poverty.
+    Journal of Statistical Software, 62(4).
 """
 
 from __future__ import annotations
-from typing import Optional, List, Tuple
-import numpy as np
+
 import itertools
 import time
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def BidimentionalPosetRepresentation(
     profile: np.ndarray,
     weights: np.ndarray,
     variables_priority: List[int],
-) -> dict:
+) -> Dict:
     """
     Bidimensional representation from a reversed pair of lexicographic extensions.
 
@@ -46,37 +57,37 @@ def BidimentionalPosetRepresentation(
     >>> vp = [0, 1, 2, 3]
     >>> result = BidimentionalPosetRepresentation(profiles, weights, vp)
     """
-    profile = np.asarray(profile, dtype=int)
-    weights = np.asarray(weights, dtype=float)
+    profile = np.asarray(profile, dtype=np.int8)
+    weights = np.asarray(weights, dtype=np.float64)
     m, k = profile.shape
     perm = list(variables_priority)
 
-    # Build two linear extensions
-    # Forward: sort by perm[0] first, perm[1] second, ...
+    # Build two linear extensions (forward and reversed priority)
     le1_order = _lex_sort_order(profile, perm)
     le2_order = _lex_sort_order(profile, perm[::-1])
 
-    # x-coordinate = position in le1, y-coordinate = position in le2
-    x_coords = np.argsort(le1_order)
-    y_coords = np.argsort(le2_order)
+    # Coordinates = rank position in each linear extension
+    x_coords = np.empty(m, dtype=np.int32)
+    y_coords = np.empty(m, dtype=np.int32)
+    x_coords[le1_order] = np.arange(m)
+    y_coords[le2_order] = np.arange(m)
 
-    # Compute per-profile approximation error
-    # Error L(b | Din, p) = weighted share of pairs where the 2D order violates the true order
+    # Compute per-profile approximation error (vectorized)
     errors = _compute_errors(profile, weights, x_coords, y_coords)
-    total_loss = float(np.sum(weights * errors) / np.sum(weights))
+    total_loss = float(np.dot(weights, errors) / weights.sum())
 
     # Profile labels: base-10 representation
     base10 = _profiles_to_base10(profile)
 
     return {
-        'LossValue': total_loss,
-        'Representation': {
-            'profiles': base10,
-            'x': x_coords,
-            'y': y_coords,
-            'weights': weights,
-            'error': errors,
-        }
+        "LossValue": total_loss,
+        "Representation": {
+            "profiles": base10,
+            "x": x_coords,
+            "y": y_coords,
+            "weights": weights,
+            "error": errors,
+        },
     }
 
 
@@ -85,7 +96,7 @@ def OptimalBidimensionalEmbedding(
     weights: np.ndarray,
     output_every_sec: Optional[int] = None,
     thread_share: float = 1.0,
-) -> dict:
+) -> Dict:
     """
     Find the optimal bidimensional embedding over all k!/2 reversed lex pairs.
 
@@ -99,11 +110,11 @@ def OptimalBidimensionalEmbedding(
     Returns
     -------
     dict with keys:
-        'allLoss' : np.ndarray (k!/2,) of loss values
-        'variablesPriority' : np.ndarray (k!/2, k) of permutations
-        'bestLossValue' : float
-        'bestVariablePriority' : list of int
-        'bestRepresentation' : same structure as BidimentionalPosetRepresentation output
+        'allLoss'               : np.ndarray (k!/2,) of loss values
+        'variablesPriority'     : np.ndarray (k!/2, k) of permutations
+        'bestLossValue'         : float
+        'bestVariablePriority'  : list of int
+        'bestRepresentation'    : same structure as BidimentionalPosetRepresentation
 
     Examples
     --------
@@ -112,48 +123,78 @@ def OptimalBidimensionalEmbedding(
     >>> weights = np.random.randint(1, 100, len(profiles))
     >>> result = OptimalBidimensionalEmbedding(profiles, weights)
     """
-    profile = np.asarray(profile, dtype=int)
-    weights = np.asarray(weights, dtype=float)
+    profile = np.asarray(profile, dtype=np.int8)
+    weights = np.asarray(weights, dtype=np.float64)
     m, k = profile.shape
 
-    all_perms = list(itertools.permutations(range(k)))
-    # Use only the first half (each reversed pair counted once)
-    half = all_perms[:len(all_perms)//2 + len(all_perms) % 2]
+    # Pre-compute the component-wise comparability matrices once
+    # (shared across all permutations — the true order doesn't change)
+    true_le, true_ge = _precompute_true_order(profile)
 
-    all_loss = []
-    all_vp = []
-    start = time.time()
-    last_print = start
+    all_perms = list(itertools.permutations(range(k)))
+    # Each reversed pair counted once
+    half = all_perms[: len(all_perms) // 2 + len(all_perms) % 2]
+
+    all_loss = np.empty(len(half), dtype=np.float64)
+    all_vp = np.empty((len(half), k), dtype=np.int32)
 
     best_loss = np.inf
     best_vp = None
     best_repr = None
 
+    start = time.time()
+    last_print = start
+
     for idx, perm in enumerate(half):
         vp = list(perm)
-        res = BidimentionalPosetRepresentation(profile, weights, vp)
-        loss = res['LossValue']
-        all_loss.append(loss)
-        all_vp.append(vp)
+
+        le1_order = _lex_sort_order(profile, vp)
+        le2_order = _lex_sort_order(profile, vp[::-1])
+
+        x = np.empty(m, dtype=np.int32)
+        y = np.empty(m, dtype=np.int32)
+        x[le1_order] = np.arange(m)
+        y[le2_order] = np.arange(m)
+
+        errors = _compute_errors_precomputed(
+            true_le, true_ge, weights, x, y
+        )
+        loss = float(np.dot(weights, errors) / weights.sum())
+
+        all_loss[idx] = loss
+        all_vp[idx] = vp
 
         if loss < best_loss:
             best_loss = loss
             best_vp = vp
-            best_repr = res
+            # Store full representation for the best
+            base10 = _profiles_to_base10(profile)
+            best_repr = {
+                "LossValue": loss,
+                "Representation": {
+                    "profiles": base10,
+                    "x": x.copy(),
+                    "y": y.copy(),
+                    "weights": weights,
+                    "error": errors,
+                },
+            }
 
         if output_every_sec is not None:
             now = time.time()
             if now - last_print >= output_every_sec:
-                print(f"  Analyzed {idx+1}/{len(half)} pairs "
-                      f"(best loss so far: {best_loss:.4f})...")
+                print(
+                    f"  Analyzed {idx + 1}/{len(half)} pairs "
+                    f"(best loss so far: {best_loss:.4f})..."
+                )
                 last_print = now
 
     return {
-        'allLoss': np.array(all_loss),
-        'variablesPriority': np.array(all_vp),
-        'bestLossValue': best_loss,
-        'bestVariablePriority': best_vp,
-        'bestRepresentation': best_repr,
+        "allLoss": all_loss,
+        "variablesPriority": all_vp,
+        "bestLossValue": best_loss,
+        "bestVariablePriority": best_vp,
+        "bestRepresentation": best_repr,
     }
 
 
@@ -162,7 +203,7 @@ def OptimalBidimensionalEmbedding(
 # ---------------------------------------------------------------------------
 
 def _lex_sort_order(profile: np.ndarray, perm: List[int]) -> np.ndarray:
-    """Return sort indices for profiles under lex order given by perm."""
+    """Return sort indices for profiles under lex order given by *perm*."""
     keys = tuple(profile[:, p] for p in reversed(perm))
     return np.lexsort(keys)
 
@@ -174,6 +215,41 @@ def _profiles_to_base10(profile: np.ndarray) -> np.ndarray:
     return profile @ powers
 
 
+# ---------------------------------------------------------------------------
+# True-order pre-computation (shared across permutations)
+# ---------------------------------------------------------------------------
+
+def _precompute_true_order(
+    profile: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Pre-compute pairwise component-wise comparability.
+
+    Returns
+    -------
+    true_le : np.ndarray (m × m) bool
+        true_le[i, j] = True iff profile[i] ≤ profile[j] component-wise.
+    true_ge : np.ndarray (m × m) bool
+        true_ge[i, j] = True iff profile[j] ≤ profile[i] component-wise.
+    """
+    m, k = profile.shape
+
+    # profile[:, None, :] shape (m, 1, k)
+    # profile[None, :, :] shape (1, m, k)
+    # comparison broadcasts to (m, m, k), then .all(axis=2) → (m, m)
+    true_le = np.all(
+        profile[:, None, :] <= profile[None, :, :], axis=2
+    )
+    # true_ge[i,j] = true_le[j,i]
+    true_ge = true_le.T
+
+    return true_le, true_ge
+
+
+# ---------------------------------------------------------------------------
+# Error computation (vectorized)
+# ---------------------------------------------------------------------------
+
 def _compute_errors(
     profile: np.ndarray,
     weights: np.ndarray,
@@ -181,40 +257,72 @@ def _compute_errors(
     y: np.ndarray,
 ) -> np.ndarray:
     """
-    Per-profile approximation error.
+    Per-profile approximation error (standalone version).
 
-    For each profile b, count the share of other profiles b' where
-    the true order (component-wise) is violated in the 2D representation.
+    For each profile i, measures how much the 2D embedding disagrees
+    with the true component-wise partial order, weighted by profile
+    frequencies.
 
-    True order: b ≤_cmp b' iff all components of b ≤ b'.
-    2D representation order: b ≤_2d b' iff x[b] ≤ x[b'] and y[b] ≤ y[b'].
+    True order:  i ≤_cmp j  iff all components of profile[i] ≤ profile[j].
+    2D order:    i ≤_2d  j  iff x[i] ≤ x[j] and y[i] ≤ y[j].
 
-    Error for profile b = fraction of pairs where true order and 2D order disagree.
+    Error sources:
+      - Truly comparable pair rendered incomparable in 2D.
+      - Truly incomparable pair rendered strictly comparable in 2D.
     """
-    m, k = profile.shape
+    true_le, true_ge = _precompute_true_order(profile)
+    return _compute_errors_precomputed(true_le, true_ge, weights, x, y)
+
+
+def _compute_errors_precomputed(
+    true_le: np.ndarray,
+    true_ge: np.ndarray,
+    weights: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+) -> np.ndarray:
+    """
+    Per-profile approximation error using pre-computed true order matrices.
+
+    Parameters
+    ----------
+    true_le : (m, m) bool — true_le[i,j] iff i ≤ j component-wise
+    true_ge : (m, m) bool — true_ge[i,j] iff j ≤ i component-wise
+    weights : (m,) float
+    x, y    : (m,) int — 2D coordinates
+
+    Returns
+    -------
+    errors : (m,) float — per-profile weighted error
+    """
+    m = len(weights)
     total_weight = weights.sum()
-    errors = np.zeros(m)
 
-    for i in range(m):
-        err = 0.0
-        for j in range(m):
-            if i == j:
-                continue
-            # True order: i ≤_cmp j?
-            true_le = bool(np.all(profile[i] <= profile[j]))
-            true_ge = bool(np.all(profile[j] <= profile[i]))
-            # 2D order
-            x2d_le = (x[i] <= x[j]) and (y[i] <= y[j])
-            x2d_ge = (x[j] <= x[i]) and (y[j] <= y[i])
+    # 2D comparability matrices (vectorized)
+    # x2d_le[i,j] = True iff x[i] <= x[j] AND y[i] <= y[j]
+    x2d_le = (x[:, None] <= x[None, :]) & (y[:, None] <= y[None, :])
+    x2d_ge = x2d_le.T
 
-            # Error: true comparable but 2D incomparable, or vice versa
-            if (true_le or true_ge) and not (x2d_le or x2d_ge):
-                err += weights[j]
-            elif not (true_le or true_ge) and (x2d_le or x2d_ge) and i != j:
-                # Only count strictly comparable in 2D (not equal)
-                if x2d_le and not x2d_ge or x2d_ge and not x2d_le:
-                    err += weights[j]
+    # True comparable: at least one direction holds
+    true_comparable = true_le | true_ge
 
-        errors[i] = err / total_weight
+    # 2D comparable: at least one direction holds
+    x2d_comparable = x2d_le | x2d_ge
+
+    # 2D strictly comparable (one direction but not both, i.e. not equal)
+    x2d_strict = x2d_comparable & ~(x2d_le & x2d_ge)
+
+    # Error type 1: truly comparable but 2D incomparable
+    err1 = true_comparable & ~x2d_comparable
+
+    # Error type 2: truly incomparable but 2D strictly comparable
+    err2 = ~true_comparable & x2d_strict
+
+    # Combined error matrix (exclude diagonal)
+    err_matrix = (err1 | err2).astype(np.float64)
+    np.fill_diagonal(err_matrix, 0.0)
+
+    # Weighted error per profile: sum over j of weights[j] * err[i,j]
+    errors = (err_matrix @ weights) / total_weight
 
     return errors

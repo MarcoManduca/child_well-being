@@ -11,15 +11,218 @@ Reference:
 """
 
 from __future__ import annotations
+
 from typing import Callable, Dict, List, Optional
+
 import numpy as np
 
 _INBET_TYPES = {"symmetric", "asymmetricLower", "asymmetricUpper"}
 _SEP_TYPES = {"symmetric", "asymmetricLower", "asymmetricUpper", "vertical", "horizontal"}
 
+# Sentinel objects identifying the built-in norm/conorm pairs so we can
+# dispatch to fully-vectorized implementations instead of element-wise
+# Python callables.
+_NORM_MIN = "min"
+_NORM_PRODUCT = "product"
+_CONORM_MAX = "max"
+_CONORM_PROBSUM = "probsum"
+
 
 # ---------------------------------------------------------------------------
-# In-betweenness
+# Vectorized core: Separation
+# ---------------------------------------------------------------------------
+
+def _separation_vectorized(
+    dom: np.ndarray,
+    norm_id: str,
+    conorm_id: str,
+) -> Dict[str, np.ndarray]:
+    """
+    Fully vectorized separation for known norm/conorm pairs.
+
+    comp_ij = 1 - dom[j, i]   (complement: degree j does NOT dominate i)
+    comp_ji = 1 - dom[i, j]
+
+    aL[i,j] = norm(dom[i,j], comp_ij)
+    aU[i,j] = norm(dom[j,i], comp_ji)
+    sym[i,j] = conorm(aL[i,j], aU[i,j])
+    """
+    d = dom
+    dT = dom.T  # dT[i,j] = dom[j,i]
+
+    comp_ij = 1.0 - dT   # 1 - dom[j,i]
+    comp_ji = 1.0 - d     # 1 - dom[i,j]
+
+    if norm_id == _NORM_MIN:
+        aL = np.minimum(d, comp_ij)
+        aU = np.minimum(dT, comp_ji)
+    else:  # product
+        aL = d * comp_ij
+        aU = dT * comp_ji
+
+    if conorm_id == _CONORM_MAX:
+        sym = np.maximum(aL, aU)
+    else:  # probabilistic sum
+        sym = aL + aU - aL * aU
+
+    vert = np.abs(aL - aU)
+    horiz = sym - vert
+
+    return {
+        "asymmetricLower": aL,
+        "asymmetricUpper": aU,
+        "symmetric": sym,
+        "vertical": vert,
+        "horizontal": horiz,
+    }
+
+
+def _separation_generic(
+    dom: np.ndarray,
+    norm: Callable,
+    conorm: Callable,
+) -> Dict[str, np.ndarray]:
+    """
+    Fallback for arbitrary user-supplied norm/conorm.
+
+    Vectorized where possible: builds aL/aU via np.vectorize,
+    then derives sym/vert/horiz with array ops.
+    """
+    n = dom.shape[0]
+    dT = dom.T
+
+    comp_ij = 1.0 - dT
+    comp_ji = 1.0 - dom
+
+    vnorm = np.vectorize(norm)
+    vconorm = np.vectorize(conorm)
+
+    aL = vnorm(dom, comp_ij)
+    aU = vnorm(dT, comp_ji)
+    sym = vconorm(aL, aU)
+
+    vert = np.abs(aL - aU)
+    horiz = sym - vert
+
+    return {
+        "asymmetricLower": aL,
+        "asymmetricUpper": aU,
+        "symmetric": sym,
+        "vertical": vert,
+        "horizontal": horiz,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Vectorized core: In-betweenness
+# ---------------------------------------------------------------------------
+
+def _inbetweenness_vectorized(
+    dom: np.ndarray,
+    norm_id: str,
+    conorm_id: str,
+    types: tuple,
+) -> Dict[str, np.ndarray]:
+    """
+    Fully vectorized in-betweenness for known norm/conorm pairs.
+
+    Uses 3D broadcasting: for indices (i, j, k),
+        asymmetricLower[i,j,k] = norm(dom[i,j], dom[j,k])
+        asymmetricUpper[i,j,k] = norm(dom[k,j], dom[j,i])
+        symmetric[i,j,k]       = conorm(lower, upper)
+
+    Shapes:
+        dom[i,j] → dom[:, :, None]   broadcast over k
+        dom[j,k] → dom[None, :, :]   broadcast over i
+        dom[k,j] → dom.T[None, :, :] = dom[:, :, None].T  (need care)
+        dom[j,i] → dom.T[:, :, None]  broadcast over k
+    """
+    n = dom.shape[0]
+
+    # dom_ij[i,j,k] = dom[i,j]  (constant over k)
+    dom_ij = dom[:, :, None]  # (n, n, 1) → broadcasts to (n, n, n)
+    # dom_jk[i,j,k] = dom[j,k]  (constant over i)
+    dom_jk = dom[None, :, :]  # (1, n, n)
+    # dom_kj[i,j,k] = dom[k,j]  (constant over i)
+    dom_kj = dom.T[None, :, :]  # (1, n, n)  — dom.T[j,k] = dom[k,j]
+    # dom_ji[i,j,k] = dom[j,i]  (constant over k)
+    dom_ji = dom.T[:, :, None]  # (n, n, 1)  — dom.T[i,j] = dom[j,i]
+
+    result = {}
+
+    need_lower = "asymmetricLower" in types or "symmetric" in types
+    need_upper = "asymmetricUpper" in types or "symmetric" in types
+
+    if norm_id == _NORM_MIN:
+        if need_lower:
+            lower = np.minimum(dom_ij, dom_jk)
+        if need_upper:
+            upper = np.minimum(dom_kj, dom_ji)
+    else:  # product
+        if need_lower:
+            lower = dom_ij * dom_jk
+        if need_upper:
+            upper = dom_kj * dom_ji
+
+    if "asymmetricLower" in types:
+        result["asymmetricLower"] = lower
+
+    if "asymmetricUpper" in types:
+        result["asymmetricUpper"] = upper
+
+    if "symmetric" in types:
+        if conorm_id == _CONORM_MAX:
+            result["symmetric"] = np.maximum(lower, upper)
+        else:  # probabilistic sum
+            result["symmetric"] = lower + upper - lower * upper
+
+    return result
+
+
+def _inbetweenness_generic(
+    dom: np.ndarray,
+    norm: Callable,
+    conorm: Callable,
+    types: tuple,
+) -> Dict[str, np.ndarray]:
+    """
+    Fallback for arbitrary user-supplied norm/conorm.
+
+    Still uses 3D broadcasting via np.vectorize for the element-wise
+    callables, which is faster than a triple Python loop.
+    """
+    n = dom.shape[0]
+
+    dom_ij = dom[:, :, None]
+    dom_jk = dom[None, :, :]
+    dom_kj = dom.T[None, :, :]
+    dom_ji = dom.T[:, :, None]
+
+    vnorm = np.vectorize(norm)
+    vconorm = np.vectorize(conorm)
+
+    result = {}
+
+    need_lower = "asymmetricLower" in types or "symmetric" in types
+    need_upper = "asymmetricUpper" in types or "symmetric" in types
+
+    if need_lower:
+        lower = vnorm(dom_ij, dom_jk)
+    if need_upper:
+        upper = vnorm(dom_kj, dom_ji)
+
+    if "asymmetricLower" in types:
+        result["asymmetricLower"] = lower
+    if "asymmetricUpper" in types:
+        result["asymmetricUpper"] = upper
+    if "symmetric" in types:
+        result["symmetric"] = vconorm(lower, upper)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Public API: In-betweenness
 # ---------------------------------------------------------------------------
 
 def FuzzyInBetweenness(
@@ -58,65 +261,43 @@ def FuzzyInBetweenness(
     >>> result['symmetric'].shape   # (n, n, n)
     """
     _validate_inbet_types(types)
-    n = dom.shape[0]
-    result = {}
-
-    for t in types:
-        arr = np.zeros((n, n, n))
-        for i in range(n):
-            for j in range(n):
-                for k in range(n):
-                    if t == 'symmetric':
-                        # finb(pi, pj, pk) = T(dom_ij, dom_jk) ⊕ T(dom_kj, dom_ji)
-                        v = conorm(
-                            norm(dom[i, j], dom[j, k]),
-                            norm(dom[k, j], dom[j, i])
-                        )
-                    elif t == 'asymmetricLower':
-                        # pi < pj < pk
-                        v = norm(dom[i, j], dom[j, k])
-                    else:  # asymmetricUpper: pk < pj < pi
-                        v = norm(dom[k, j], dom[j, i])
-                    arr[i, j, k] = v
-        result[t] = arr
-
-    return result
+    return _inbetweenness_generic(dom, norm, conorm, types)
 
 
-def FuzzyInBetweennessMinMax(dom: np.ndarray, *types: str) -> Dict[str, np.ndarray]:
+def FuzzyInBetweennessMinMax(
+    dom: np.ndarray, *types: str
+) -> Dict[str, np.ndarray]:
     """
     Fuzzy in-betweenness with minimum t-norm and maximum t-conorm.
+
+    Fully vectorized (no Python loops).
 
     Examples
     --------
     >>> result = FuzzyInBetweennessMinMax(D, 'symmetric', 'asymmetricLower')
     """
-    return FuzzyInBetweenness(
-        dom,
-        norm=lambda x, y: min(x, y),
-        conorm=lambda x, y: max(x, y),
-        *types,
-    )
+    _validate_inbet_types(types)
+    return _inbetweenness_vectorized(dom, _NORM_MIN, _CONORM_MAX, types)
 
 
-def FuzzyInBetweennessProbabilistic(dom: np.ndarray, *types: str) -> Dict[str, np.ndarray]:
+def FuzzyInBetweennessProbabilistic(
+    dom: np.ndarray, *types: str
+) -> Dict[str, np.ndarray]:
     """
     Fuzzy in-betweenness with product t-norm and probabilistic-sum t-conorm.
+
+    Fully vectorized (no Python loops).
 
     Examples
     --------
     >>> result = FuzzyInBetweennessProbabilistic(D, 'symmetric')
     """
-    return FuzzyInBetweenness(
-        dom,
-        norm=lambda x, y: x * y,
-        conorm=lambda x, y: x + y - x * y,
-        *types,
-    )
+    _validate_inbet_types(types)
+    return _inbetweenness_vectorized(dom, _NORM_PRODUCT, _CONORM_PROBSUM, types)
 
 
 # ---------------------------------------------------------------------------
-# Fuzzy Separation
+# Public API: Separation
 # ---------------------------------------------------------------------------
 
 def FuzzySeparation(
@@ -146,6 +327,8 @@ def FuzzySeparation(
     norm : callable
     conorm : callable
     *types : str
+        'symmetric', 'asymmetricLower', 'asymmetricUpper',
+        'vertical', 'horizontal'.
 
     Returns
     -------
@@ -159,72 +342,42 @@ def FuzzySeparation(
     >>> result = FuzzySeparation(D, tnorm, tconorm, 'symmetric', 'vertical')
     """
     _validate_sep_types(types)
-    n = dom.shape[0]
-    result = {}
-
-    sym = np.zeros((n, n))
-    aL = np.zeros((n, n))
-    aU = np.zeros((n, n))
-
-    for i in range(n):
-        for j in range(n):
-            comp_ij = 1.0 - dom[j, i]  # complement: degree to which j does NOT dominate i
-            comp_ji = 1.0 - dom[i, j]
-            al = norm(dom[i, j], comp_ij)
-            au = norm(dom[j, i], comp_ji)
-            s = conorm(al, au)
-            aL[i, j] = al
-            aU[i, j] = au
-            sym[i, j] = s
-
-    vert = np.abs(aL - aU)
-    horiz = sym - vert
-
-    for t in types:
-        if t == 'symmetric':
-            result[t] = sym
-        elif t == 'asymmetricLower':
-            result[t] = aL
-        elif t == 'asymmetricUpper':
-            result[t] = aU
-        elif t == 'vertical':
-            result[t] = vert
-        elif t == 'horizontal':
-            result[t] = horiz
-
-    return result
+    all_mats = _separation_generic(dom, norm, conorm)
+    return {t: all_mats[t] for t in types}
 
 
-def FuzzySeparationMinMax(dom: np.ndarray, *types: str) -> Dict[str, np.ndarray]:
+def FuzzySeparationMinMax(
+    dom: np.ndarray, *types: str
+) -> Dict[str, np.ndarray]:
     """
     Fuzzy separation with minimum t-norm and maximum t-conorm.
+
+    Fully vectorized (no Python loops).
 
     Examples
     --------
     >>> result = FuzzySeparationMinMax(D, 'symmetric', 'vertical')
     """
-    return FuzzySeparation(
-        dom,
-        norm=lambda x, y: min(x, y),
-        conorm=lambda x, y: max(x, y),
-        *types,
-    )
+    _validate_sep_types(types)
+    all_mats = _separation_vectorized(dom, _NORM_MIN, _CONORM_MAX)
+    return {t: all_mats[t] for t in types}
 
 
-def FuzzySeparationProbabilistic(dom: np.ndarray, *types: str) -> Dict[str, np.ndarray]:
+def FuzzySeparationProbabilistic(
+    dom: np.ndarray, *types: str
+) -> Dict[str, np.ndarray]:
     """
     Fuzzy separation with product t-norm and probabilistic-sum t-conorm.
+
+    Fully vectorized (no Python loops).
 
     Examples
     --------
     >>> result = FuzzySeparationProbabilistic(D, 'symmetric', 'asymmetricLower')
     """
-    return FuzzySeparation(
-        dom,
-        norm=lambda x, y: x * y,
-        conorm=lambda x, y: x + y - x * y,
-        *types,
-    )
+    _validate_sep_types(types)
+    all_mats = _separation_vectorized(dom, _NORM_PRODUCT, _CONORM_PROBSUM)
+    return {t: all_mats[t] for t in types}
 
 
 # ---------------------------------------------------------------------------
@@ -232,16 +385,22 @@ def FuzzySeparationProbabilistic(dom: np.ndarray, *types: str) -> Dict[str, np.n
 # ---------------------------------------------------------------------------
 
 def _validate_inbet_types(types):
-    for t in types:
-        if t not in _INBET_TYPES:
-            raise ValueError(f"Unknown in-betweenness type '{t}'. Choose from {_INBET_TYPES}.")
     if not types:
         raise ValueError("Specify at least one in-betweenness type.")
+    for t in types:
+        if t not in _INBET_TYPES:
+            raise ValueError(
+                f"Unknown in-betweenness type '{t}'.  "
+                f"Choose from {_INBET_TYPES}."
+            )
 
 
 def _validate_sep_types(types):
-    for t in types:
-        if t not in _SEP_TYPES:
-            raise ValueError(f"Unknown separation type '{t}'. Choose from {_SEP_TYPES}.")
     if not types:
         raise ValueError("Specify at least one separation type.")
+    for t in types:
+        if t not in _SEP_TYPES:
+            raise ValueError(
+                f"Unknown separation type '{t}'.  "
+                f"Choose from {_SEP_TYPES}."
+            )
