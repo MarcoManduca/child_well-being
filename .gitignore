@@ -21,7 +21,8 @@ venv.bak/
 
 data/*.csv
 data/*.txt
+data/tmp/
 
 r_library/
 
-notebooks/automated_validation.R
+scripts/automated_validation.R
