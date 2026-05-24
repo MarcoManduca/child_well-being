@@ -1,0 +1,142 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(poseticDataAnalysis)
+```
+
+
+### 1. POSet Adjacency Structures: Core Validation
+
+**Methodology Note:**
+To perform a rigorous mathematical validation of the core algorithms, we must isolate the mathematical engine from any dataset parsing or formatting logic. Therefore, we are deliberately bypassing dataset wrappers for this baseline test. We initialize the baseline POSet using the explicit `a, b, c, d` dominance pairs provided in the official `poseticDataAnalysis` package documentation to ensure a perfect 1:1 comparison environment.
+
+This step validates:
+* **Weak Dominance Matrix:** A boolean matrix where `TRUE` means element J dominates element I.
+* **Cover Matrix:** The "skeleton" of the POSet, showing only *immediate* dominance without transitive shortcuts.
+
+```{r}
+elems <- c("a", "b", "c", "d")
+dom_pairs <- matrix(c(
+  "a", "b",
+  "c", "b",
+  "b", "d"
+), ncol = 2, byrow = TRUE)
+
+my_poset <- POSet(elements = elems, dom = dom_pairs)
+
+# Extract and print the Weak Dominance Matrix
+dom_matrix <- DominanceMatrix(my_poset)
+print("--- R: Weak Dominance Matrix ---")
+print(dom_matrix)
+
+# Extract and print the Cover Matrix
+cov_matrix <- CoverMatrix(my_poset)
+print("--- R: Cover Matrix ---")
+print(cov_matrix)
+```
+
+
+### 2. Extremal Elements Validation
+
+This step verifies the identification of the boundary elements within the POSet structure.
+
+* **Minimals:** Elements with no predecessors.
+* **Maximals:** Elements with no successors.
+
+
+```{r}
+# Extract and print minimal elements
+min_elems <- POSetMinimals(my_poset)
+print("--- R: Minimal Elements ---")
+print(min_elems)
+
+# Extract and print maximal elements
+max_elems <- POSetMaximals(my_poset)
+print("--- R: Maximal Elements ---")
+print(max_elems)
+```
+
+
+### 3. Exact Mutual Ranking Probabilities (ExactMRP)
+
+This step validates the computation of Mutual Ranking Probabilities (MRP). 
+MRP(a, b) calculates the probability that element 'b' dominates 'a' across the set of all possible linear extensions of the POSet. 
+
+
+```{r}
+# Compute ExactMRP and print the matrix
+mrp_results <- ExactMRP(my_poset)
+print("--- R: ExactMRP Matrix ---")
+print(mrp_results$MRP)
+```
+
+
+### 4 & 5. Exact Separation Metrics and BLS Dominance
+
+This step validates the computation of:
+* **ExactSeparation:** Measures the "vertical" and "horizontal" distance between elements in the partial order.
+* **BLSDominance:** A Brueggemann-Lerche-Sørensen score representing the structural dominance of one element over another, calculated via the intersection of downsets and upsets.
+
+```{r}
+# Compute Exact Separation 
+sep_sym <- ExactSeparation(poset = my_poset, type = "symmetric")
+sep_vert <- ExactSeparation(poset = my_poset, type = "vertical")
+
+print("--- R: Exact Separation (Symmetric) ---")
+print(sep_sym$symmetric)
+
+print("--- R: Exact Separation (Vertical) ---")
+print(sep_vert$vertical)
+
+# Compute BLS Dominance
+bls_matrix <- BLSDominance(poset = my_poset)
+print("--- R: BLS Dominance Matrix ---")
+print(bls_matrix)
+```
+
+
+### 6. Fuzzy Posetic Toolbox
+
+This step validates the Fuzzy Posetic Toolbox, which extends classical order theory into fuzzy set theory for multi-criteria evaluation. We test:
+* **FuzzyInBetweenness:** Measures the degree to which an element sits "between" two others using t-norm and t-conorm operations.
+* **FuzzySeparation:** Computes fuzzy separation matrices to quantify structural distance between elements in the poset.
+
+```{r}
+# Compute Fuzzy In-Betweenness (Symmetric)
+finb_results <- FuzzyInBetweenness(dom = bls_matrix, norm = tnorm, conorm = tconorm, type = "symmetric")
+print("--- R: Fuzzy In-Betweenness (Symmetric) ---")
+print(finb_results$symmetric[,,1])
+
+# Compute Fuzzy Separation (Symmetric and Vertical separately)
+fsep_sym <- FuzzySeparation(dom = bls_matrix, norm = tnorm, conorm = tconorm, type = "symmetric")
+fsep_vert <- FuzzySeparation(dom = bls_matrix, norm = tnorm, conorm = tconorm, type = "vertical")
+
+print("--- R: Fuzzy Separation (Symmetric) ---")
+print(fsep_sym$symmetric)
+
+print("--- R: Fuzzy Separation (Vertical) ---")
+print(fsep_vert$vertical)
+```
+
+
+### 7. Dimensionality Reduction (OptimalBidimensionalEmbedding)
+
+This final validation step verifies the OptimalBidimensionalEmbedding function. This function projects a multi-dimensional ordinal dataset into a 2D space while minimizing the global approximation error $L(D^{out}|D^{inp},p)$.
+
+```{r}
+# Simulate a small binary dataset for embedding
+k <- 4
+profiles <- sapply((0:(2^k-1)), function(x) { as.integer(intToBits(x)) })
+profiles <- t(profiles[1:k, ])
+weights <- sample.int(10, nrow(profiles), replace=TRUE)
+
+# Compute optimal embedding
+embed_results <- OptimalBidimensionalEmbedding(profiles, weights)
+
+print("--- R: Best Loss Value ---")
+print(embed_results$bestLossValue)
+```
+
