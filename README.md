@@ -36,13 +36,21 @@ The posetic library is a Python port of the R package `poseticDataAnalysis`:
 > *A fuzzy posetic toolbox for multi-criteria evaluation on ordinal data systems.*  
 > Annals of Operations Research. [doi:10.1007/s10479-024-06352-3](https://doi.org/10.1007/s10479-024-06352-3)
 
+### Posetic Separation
+
+The **symmetric separation** $\text{Sep}(i,j)$ measures how far apart two countries rank on average across all possible linear extensions of the poset:
+
+$$\text{Sep}(i,j) = \frac{\mathbb{E}_{\sigma \sim \text{LE}(P)}\bigl[|\sigma(i) - \sigma(j)|\bigr]}{n - 1} \in [0,1]$$
+
+A value near 1 means $i$ and $j$ consistently occupy opposite ends of the ranking; a value near 0 means they rank similarly in most extensions. The expectation is approximated via **Bubley-Dyer MCMC** sampling (50 000 linear extensions per poset).
+
+Separation is used in two ways in this project:
+- **Notebook 080** — as a per-poset matrix showing the pairwise structural distance between countries.
+- **Notebook 090** — as a dissimilarity input to Classical MDS, enabling a geometric embedding of countries.
+
 ### MDS Country Projection
 
-Countries are embedded in 2D/3D space via **Classical Multi-Dimensional Scaling (cMDS / PCoA)**, using **posetic symmetric separation** as the dissimilarity measure:
-
-$$D(i,j) = \frac{\mathbb{E}_{\sigma \sim \text{LE}(P)}\bigl[|\sigma(i) - \sigma(j)|\bigr]}{n - 1} \in [0,1]$$
-
-The expectation is approximated via **Bubley-Dyer MCMC** sampling over linear extensions (50 000 samples per poset). Embeddings for 2015 and 2018 are aligned with **Procrustes analysis** (rotation + reflection) to make country trajectories comparable across years.
+Countries are embedded in 2D/3D space via **Classical Multi-Dimensional Scaling (cMDS / PCoA)** using the posetic separation matrix as input. Embeddings for 2015 and 2018 are independently computed and then aligned with **Procrustes analysis** (rotation + reflection, no scaling) so that arrows between the same country across years represent genuine positional shifts in the dominance space.
 
 ---
 
@@ -60,8 +68,8 @@ The expectation is approximated via **Bubley-Dyer MCMC** sampling over linear ex
 | [`055_Poset_check.ipynb`](notebooks/055_Poset_check.ipynb) | Cross-language validation of POSet results (Python vs. R reference) |
 | [`060_Poset_analysis.ipynb`](notebooks/060_Poset_analysis.ipynb) | Analysis of POSet structures: minimals, maximals, MDS width, separation |
 | [`070_MDS_visualization.ipynb`](notebooks/070_MDS_visualization.ipynb) | Bidimensional embedding of countries within each POSet |
-| [`080_dominance_matrices.ipynb`](notebooks/080_dominance_matrices.ipynb) | Dominance matrices (certain / possible / BLS) between REF_AREA countries |
-| [`090_MDS_projection.ipynb`](notebooks/090_MDS_projection.ipynb) | cMDS + Procrustes projection: country trajectories 2015 → 2018 |
+| [`080_dominance_matrices.ipynb`](notebooks/080_dominance_matrices.ipynb) | Certain / possible dominance heatmaps and posetic separation matrices per dataset |
+| [`090_MDS_projection.ipynb`](notebooks/090_MDS_projection.ipynb) | cMDS + Procrustes projection using posetic separation: country trajectories 2015 → 2018 |
 
 ### Discretization Variants
 
