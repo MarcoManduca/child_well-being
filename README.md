@@ -1,6 +1,8 @@
 # Child Well-being
 
-Analysis of child well-being indicators across OECD countries, based on the OECD Child Well-being dataset.
+Analysis of child well-being indicators across OECD countries using **Partially Ordered Sets (POSets)**.  
+Rather than collapsing multi-dimensional indicators into a single composite index, the project preserves incomparability between countries and studies their structural relationships through posetic methods.
+
 
 ## Authors
 
@@ -9,18 +11,96 @@ Analysis of child well-being indicators across OECD countries, based on the OECD
 - [Maggioni Pietro](https://github.com/pietromaggioni)
 - [Manduca Marco](https://github.com/MarcoManduca)
 
+---
+
 ## Data Source
 
 [OECD Child Well-being Explorer](https://data-explorer.oecd.org/vis?lc=en&df[ds]=dsDisseminateFinalDMZ&df[id]=DSD_CWB%40DF_CWB&df[ag]=OECD.WISE.CWB&dq=..&to[TIME_PERIOD]=false&pd=%2C&lb=nm&vw=tb)
 
+Two observation years: **2015** and **2018**.  
+~30 indicators covering child outcomes, circumstances, and policies across 16 European OECD countries.
+
+---
+
+## Methodology
+
+### Partially Ordered Sets (POSets)
+
+A POSet models a set of countries under a **component-wise dominance relation**: country $A$ dominates country $B$ if $A$ performs at least as well as $B$ on **every** indicator. Countries that differ in at least one direction are *incomparable* — a distinction that composite indexes erase.
+
+Null values in the data are not imputed. Instead, they are treated as **structural uncertainty**: each unit with missing values occupies an interval $[\text{lo}, \text{hi}]$ in the hyperlattice, supporting `certain`, `possible`, and `certain_or_possible` dominance modes.
+
+The posetic library is a Python port of the R package `poseticDataAnalysis`:
+
+> Fattore M., De Capitani L., Avellone A., Suardi A. (2024).  
+> *A fuzzy posetic toolbox for multi-criteria evaluation on ordinal data systems.*  
+> Annals of Operations Research. [doi:10.1007/s10479-024-06352-3](https://doi.org/10.1007/s10479-024-06352-3)
+
+### MDS Country Projection
+
+Countries are embedded in 2D/3D space via **Classical Multi-Dimensional Scaling (cMDS / PCoA)**, using **posetic symmetric separation** as the dissimilarity measure:
+
+$$D(i,j) = \frac{\mathbb{E}_{\sigma \sim \text{LE}(P)}\bigl[|\sigma(i) - \sigma(j)|\bigr]}{n - 1} \in [0,1]$$
+
+The expectation is approximated via **Bubley-Dyer MCMC** sampling over linear extensions (50 000 samples per poset). Embeddings for 2015 and 2018 are aligned with **Procrustes analysis** (rotation + reflection) to make country trajectories comparable across years.
+
+---
+
 ## Project Structure
+
+### Analysis Pipeline
 
 | Notebook | Description |
 |---|---|
-| [`010_data_extractor.ipynb`](notebooks/010_data_extractor.ipynb) | Data extraction from the OECD API |
-| [`020_data_exploration.ipynb`](notebooks/020_data_exploration.ipynb) | Exploratory data analysis and correlation |
+| [`010_data_extractor.ipynb`](notebooks/010_data_extractor.ipynb) | Data extraction from the OECD API → `data/010_child_well_being.parquet` |
+| [`020_data_exploration.ipynb`](notebooks/020_data_exploration.ipynb) | Exploratory data analysis and correlation study |
 | [`030_data_transformer.ipynb`](notebooks/030_data_transformer.ipynb) | Normalization and discretization of indicators |
-| [`040_data_partitioner.ipynb`](notebooks/040_data_partitioner.ipynb) | Data partitioning by year and domain |
+| [`040_data_partitioner.ipynb`](notebooks/040_data_partitioner.ipynb) | Partition by year (2015 / 2018) and domain; produce all `040_*.parquet` files |
+| [`050_Poset_creator.ipynb`](notebooks/050_Poset_creator.ipynb) | Build POSets from all partitions → `data/050_posets*.pkl` |
+| [`055_Poset_check.ipynb`](notebooks/055_Poset_check.ipynb) | Cross-language validation of POSet results (Python vs. R reference) |
+| [`060_Poset_analysis.ipynb`](notebooks/060_Poset_analysis.ipynb) | Analysis of POSet structures: minimals, maximals, MDS width, separation |
+| [`070_MDS_visualization.ipynb`](notebooks/070_MDS_visualization.ipynb) | Bidimensional embedding of countries within each POSet |
+| [`080_dominance_matrices.ipynb`](notebooks/080_dominance_matrices.ipynb) | Dominance matrices (certain / possible / BLS) between REF_AREA countries |
+| [`090_MDS_projection.ipynb`](notebooks/090_MDS_projection.ipynb) | cMDS + Procrustes projection: country trajectories 2015 → 2018 |
+
+### Discretization Variants
+
+| Dataset | Levels | Domains |
+|---|---|---|
+| `indicators_macro_dim` | 3, 4, 5 | Child outcome macro-dimensions |
+| `indicators_dim_discrete` | 3, 4 | Individual indicators |
+| `public_expenditure_dim_discrete` | 3, 4 | Public expenditure by category |
+
+### `poset/` Library
+
+Custom Python library implementing the posetic toolbox. Exposed via a clean public API in `__init__.py`.
+
+| Module | Content |
+|---|---|
+| `poset.py` | Core data structures: `POSet`, `LinearPOSet`, `BinaryVariablePOSet` |
+| `poset_ops.py` | Algebraic operations: product, dual, sum, lifting, crown, fence |
+| `relations.py` | Reflexivity / transitivity / antisymmetry checks and closures (Floyd-Warshall) |
+| `poset_query.py` | Element queries: minimals, maximals, upset/downset, covers, meet/join |
+| `linear_extensions.py` | Exact LE generator + Bubley-Dyer MCMC sampler |
+| `mrp.py` | Mutual Ranking Probabilities (exact + Bubley-Dyer) |
+| `separation.py` | Separation scores (exact + Bubley-Dyer) |
+| `evaluation.py` | Function averaging over linear extensions |
+| `dominance.py` | BLS dominance matrix |
+| `fuzzy.py` | Fuzzy in-betweenness and separation (MinMax + Probabilistic) |
+| `embedding.py` | Bidimensional embedding (PARSEC-style, optimal permutation search) |
+| `from_polars.py` | Build POSet from Polars DataFrames with null-as-uncertainty intervals |
+
+---
+
+## Setup
+
+```bash
+pip install -r requirements.txt
+```
+
+The library in `poset/` requires no installation — notebooks reference it via `sys.path.insert(0, '..')`.
+
+---
 
 ## Analysed Metrics
 
@@ -41,23 +121,23 @@ Metrics follow the OECD CWB framework: **A** (child outcomes), **B** (child circ
 #### A2 — Health
 
 **A2_1 · Infant mortality rates**
-> Deaths of children aged less than one (no minimum threshold of gestation period or birthweight). Infant mortality is defined as deaths of children aged less than one year (no minimum threshold of gestation period or birthweight)
+> Deaths of children aged less than one (no minimum threshold of gestation period or birthweight). Infant mortality is defined as deaths of children aged less than one year (no minimum threshold of gestation period or birthweight).
 
 #### A3 — Education
 
 **A3_3 · Top performers in reading, maths and/or science**
-> 15-year-old students who attained Level 5 or 6 in at least one of the three main PISA test subjects (reading, mathematics and science). Data refer to the percent of 15-year-old students who attained Level 5 or 6 in at least one of the three main PISA test subjects (reading, mathematics and science). For more detail on the construction of the PISA proficiency scales and proficiency levels, see the PISA 2018 Technical Report (https://www.oecd.org/pisa/data/pisa2018technicalreport/) and the corresponding Technical Reports from earlier rounds. '15-year-olds' and/or '15-year-old students' are used as shorthand for the PISA target population.
+> 15-year-old students who attained Level 5 or 6 in at least one of the three main PISA test subjects (reading, mathematics and science). Data refer to the percent of 15-year-old students who attained Level 5 or 6 in at least one of the three main PISA test subjects (reading, mathematics and science). For more detail on the construction of the PISA proficiency scales and proficiency levels, see the PISA 2018 Technical Report and the corresponding Technical Reports from earlier rounds.
 
 **A3_4 · Students who expect to complete tertiary education**
-> 15-year-old students who report expecting to complete tertiary education. 15-year-old students were asked 'Which of the following do you expect to complete?' and presented with the response options '(ISCED level 2)', ''(ISCED level 3B or C)', '(ISCED level 3A)', '(ISCED level 4)', '(ISCED level 5B)' and '(ISCED level 5A or 6)'. Data refer to the percent responding either '(ISCED level 5B)' or '(ISCED level 5A or 6)'. '15-year-olds' and/or '15-year-old students' are used as shorthand for the PISA target population.
+> 15-year-old students who report expecting to complete tertiary education. Data refer to the percent responding either '(ISCED level 5B)' or '(ISCED level 5A or 6)'. Percent among valid responses only.
 
 **A3_5 · Youth not in education, employment or training (NEET)**
-> 15- to 29-year-olds not in education, employment or training (NEET). Children and young people are classified as 'NEET' if they had neither received formal education and/or training in the regular educational system in the four weeks prior to being surveyed, nor were either working for pay or profit for at least one hour or had a job but were temporarily not at work during the survey reference week. Education or training corresponds to formal education; therefore, someone not working but following non-formal studies is considered NEET.
+> 15- to 29-year-olds not in education, employment or training (NEET). Children and young people are classified as 'NEET' if they had neither received formal education and/or training in the regular educational system in the four weeks prior to being surveyed, nor were either working for pay or profit for at least one hour or had a job but were temporarily not at work during the survey reference week.
 
 #### A4 — Subjective Well-being
 
 **A4_6 · Students who report high satisfaction with their life as a whole**
-> 15-year-old students who report high satisfaction with their life as a whole. Data are based on responses by students to the question 'Overall, how satisfied are you with your life as a whole these days?'. Students were asked to record their response on a scale from 0 to 10, with 0 meaning and 10 meaning . Students recording a 9 or a 10 were classified as reporting . '15-year-olds' and/or '15-year-old students' are used as shorthand for the PISA target population.
+> 15-year-old students who report high satisfaction with their life as a whole. Data are based on responses by students to the question 'Overall, how satisfied are you with your life as a whole these days?'. Students were asked to record their response on a scale from 0 to 10. Students recording a 9 or a 10 were classified as reporting high satisfaction.
 
 ---
 
@@ -66,31 +146,31 @@ Metrics follow the OECD CWB framework: **A** (child outcomes), **B** (child circ
 #### B1 — Economic Circumstances
 
 **B1_1 · Children living in relative income poverty**
-> 0- to 17-year-olds in relative income poverty. Data are based on equivalised household disposable income, i.e. income after taxes and transfers adjusted for household size. Income includes both market earnings and income from capital, and is presented net of all direct taxes and social security contributions paid by, and government transfers received by, the household. The poverty threshold is set at 50% of median disposable income in each country.
+> 0- to 17-year-olds in relative income poverty. Data are based on equivalised household disposable income. The poverty threshold is set at 50% of median disposable income in each country.
 
 **B1_5 · Students who firmly report that their parents encourage them to be confident**
-> 15-year-old students who strongly agree with the statement 'My parents encourage me to be confident'. 15-year-old students were asked 'Thinking about (this academic year): to what extent do you agree or disagree with the following statements? My parents encourage me to be confident' and presented with the response options 'Strongly disagree', 'Disagree', 'Agree' and 'Strongly agree'. Data refer to the percent responding 'Strongly agree'. Percent among valid responses only. '15-year-olds' and/or '15-year-old students' are used as shorthand for the PISA target population.
+> 15-year-old students who strongly agree with the statement 'My parents encourage me to be confident'. Data refer to the percent responding 'Strongly agree'. Percent among valid responses only.
 
 #### B2 — Social Circumstances
 
 **B2_1 · Children enrolled in early childhood education and care**
-> 0- to 2-year-olds participating in formal early childhood education and care services. Data generally include children enrolled in early childhood education services (ISCED 2011 level 0) and other registered ECEC services (ECEC services outside the scope of ISCED 0, because they are not in adherence with all ISCED-2011 criteria). Data for Denmark, Finland, and Spainincludes only early childhood education and care (ISCED 0). Data for Belgium, the Czech Republic, France, Greece, Hungary, Ireland, Italy, Latvia, Luxembourg, the Netherlands, Poland, the Slovak Republic, the United Kingdom, Bulgaria, Croatia, Cyprus and Romania are OECD estimates based on information from EU-SILC. Data refer to children using centre-based services (e.g. nurseries or day care centres and pre-schools, both public and private), organised family day care, and care services provided by (paid) professional childminders, regardless of whether or not the service is registered or ISCED-recognised.
+> 0- to 2-year-olds participating in formal early childhood education and care services. Data generally include children enrolled in early childhood education services (ISCED 2011 level 0) and other registered ECEC services.
 
 **B2_4 · Students who report experiencing bullying at school**
-> 15-year-old students who report experiencing any of a specified list of bullying acts at school at least a few times a month. Data refer to the percent of 15-year-old students who, when asked how often they had experienced six different types of bullying behavior in school, responded to at least one with the answer 'a few times a month' or 'once a week or more'. The six different behaviours were: 'Other students left me out of things on purpose', 'Other students made fun of me', 'I was threatened by other students', 'Other students took away or destroyed things that belonged to me', 'I got hit or pushed around by other students', and 'Other students spread nasty rumours about me'. In 2018 (but not in 2015), the question specifies to students that 'Some experiences can also happen in social media'. '15-year-olds' and/or '15-year-old students' are used as shorthand for the PISA target population.
+> 15-year-old students who report experiencing any of a specified list of bullying acts at school at least a few times a month. Data refer to the percent of 15-year-old students who responded to at least one bullying behaviour with 'a few times a month' or 'once a week or more'.
 
 **B2_5 · Students who feel like they belong at school**
-> 15-year-old students who agree (or strongly agree) with the statement 'I feel like I belong at school'. 15-year-old students were asked 'Thinking about your school: to what extent do you agree with the following statements? I feel like I belong at school' and presented with the response options 'Strongly disagree', 'Disagree', 'Agree' and 'Strongly agree'. Data refer to the percent responding 'Agree' or 'Strongly Agree'. Percent among valid responses only. '15-year-olds' and/or '15-year-old students' are used as shorthand for the PISA target population.
+> 15-year-old students who agree (or strongly agree) with the statement 'I feel like I belong at school'. Data refer to the percent responding 'Agree' or 'Strongly Agree'. Percent among valid responses only.
 
 #### B3 — Safety and Security
 
 **B3_5 · Children in households that report crime and violence in their local area**
-> 0- to 17-year-olds in households that report problems with crime or violence in the area. Data refer to the percent of children (0- to 17-year-olds) in households that report problems with crime, violence or vandalism in the area in which they live.
+> 0- to 17-year-olds in households that report problems with crime or violence in the area. Data refer to the percent of children in households that report problems with crime, violence or vandalism in the area in which they live.
 
 #### B4 — Digital Environment
 
 **B4_3 · Students who firmly believe the Internet is a great resource for information**
-> 15-year-old students who 'strongly agree' with the statement 'The Internet is a great resource for obtaining information I am interested in (e.g. news, sports, dictionary)'. 15-year-old students were asked 'Thinking about your experience with digital media and digital devices: to what extent do you disagree or agree with the following statements? The Internet is a great resource for obtaining information I am interested in (e.g. news, sports, dictionary)' and presented with the response options 'Strongly disagree', 'Disagree', 'Agree' and 'Strongly agree'. Data refer to the percent responding 'Strongly agree'. Percent among valid responses only. '15-year-olds' and/or '15-year-old students' are used as shorthand for the PISA target population.
+> 15-year-old students who 'strongly agree' with the statement 'The Internet is a great resource for obtaining information I am interested in'. Data refer to the percent responding 'Strongly agree'. Percent among valid responses only.
 
 ---
 
@@ -99,63 +179,63 @@ Metrics follow the OECD CWB framework: **A** (child outcomes), **B** (child circ
 #### C1 — Family Support and Income Redistribution
 
 **C1_1 · Public expenditure on families per child**
-> Public expenditure on families. Data refer to public expenditure on benefits and services that are exclusively for families and children. Expenditures recorded in other social policy areas such as health and housing may also assist families, but not exclusively, and are not included here. Coverage of spending on family and community services in the OECD Social Expenditure Database may be limited as such services are often provided and/or co-financed by local governments. The latter may receive general block grants to finance their activities, and reporting requirements may not be sufficient for central statistical agencies to have a detailed view of the nature of local spending. In Nordic countries (where local governments are heavily involved in service delivery), this does not lead to large gaps in measurement of spending, but it does for some countries with a federal structure, for example, Canada and Switzerland.
+> Public expenditure on benefits and services exclusively for families and children.
 
 **C1_2 · Difference between before- and after-tax and transfer child relative income poverty rates**
-> Percentage point difference between before- and after-tax and transfer child relative income poverty rates. Data refer to the percentage point difference between the child relative income poverty rate before taxes and transfers, and the child relative income poverty rate after taxes and transfers. The 'child relative income poverty rate' is defined as the percentage of children (0-17 year-olds) with an equivalised household income below the poverty threshold, set at 50% of the median income in each country, either before or after the payment of direct taxes and social security contributions and receipt of government transfers by the household.
+> Percentage point difference between the child relative income poverty rate before and after taxes and transfers.
 
 **C1_3 · Guaranteed minimum income for a jobless couple with two children**
-> Guaranteed minimum income for a jobless couple with two children. Data refer to the modelled disposable income of jobless couple family with two children (age 4 and 6) that claim Guaranteed Minimum Income (GMI) benefits, as a percentage of the median disposable income in their country. Calculations include Housing benefits. See the OECD Tax-Benefit Data Portal (https://www.oecd.org/els/soc/benefits-and-wages/data/) for more information on the OECD Tax-Benefit Model methodology.
+> Modelled disposable income of a jobless couple family with two children (age 4 and 6) claiming Guaranteed Minimum Income benefits, as a percentage of median disposable income.
 
 **C1_4 · Total length of paid maternity and parental leave available to mothers**
-> Total length of paid maternity and parental leave available to mothers. Data refer to the total length of paid maternity leave and paid parental leave available to mothers after the birth of a child. See OECD Family Database (https://www.oecd.org/els/family/database.htm) Indicators PF2.1 and PF2.5 for more detail.
+> Total length of paid maternity leave and paid parental leave available to mothers after the birth of a child.
 
 **C1_5 · Total length of paid paternity and parental leave reserved for fathers**
-> Total length of paid paternity and parental leave reserved for fathers. Paid leave reserved for fathers refers to the number of paid weeks reserved for the exclusive use of fathers, including entitlements to paid paternity leave, 'father quotas' or periods of paid parental leave that can be used only by the father and cannot be transferred to the mother, and any weeks of paid sharable leave that must be taken by the father in order for the family to qualify for 'bonus' weeks of parental leave. See OECD Family Database (https://www.oecd.org/els/family/database.htm) Indicators PF2.1 and PF2.5 for more detail.
+> Paid leave reserved for fathers: paternity leave, 'father quotas', and non-transferable periods of paid parental leave.
 
 #### C2 — Housing, Community and Recreation
 
 **C2_1 · General government expenditure on housing and community amenities per person**
-> General government expenditure on housing and community amenities. Data refer to total general government expenditure classified under Classification Of the Functions Of Government (COFOG) function 06 ('Housing and community amenities'). It covers expenditure at all levels of government (i.e. central, state and local government and social security funds, if/as and where relevant), and includes total spending on housing development (e.g. expansion, improvement or maintenance of the housing stock), community development (e.g. the planning and preperation of new or rehabilitated communities; administration of zoning laws and land-use and building regulations), water supply, and street lighting, as well as research and development related to housing and community amenities. It excludes cash benefits and benefits in kind to help households meet the cost of housing.
+> Total general government expenditure classified under COFOG function 06 ('Housing and community amenities').
 
 **C2_2 · General government expenditure on recreation, culture and religion per person**
-> General government expenditure on recreation, culture and religion. Data refer to total general government expenditure classified under Classification Of the Functions Of Government (COFOG) function 08 ('Recreation, culture and religion'). It covers expenditure at all levels of government (i.e. central, state and local government and social security funds, if/as and where relevant), and includes spending on recreational and sporting services (e.g. operation/support of recreational and sporting facilities, grants, loans or subsidies to teams/players/competitors), cultural services (e.g. operation/support of cultural facilities, grants, loans or subsidies to artists/writers/designers, etc.), broadcasting and publishing services (e.g. operation/support of broadcasting and publishing services), religious and other community services (e.g. provision of facilities for religious and other community services, payment of clergy or other officers of religious institutions), and research and development related to recreation, culture and religion.
+> Total general government expenditure classified under COFOG function 08 ('Recreation, culture and religion').
 
 **C2_3 · General government expenditure on housing social protection per person**
-> General government expenditure on housing social protection. Data refer to total general government expenditure classified under Classification Of the Functions Of Government (COFOG) function 10.6 ('Social Protection: Housing'). It covers expenditure at all levels of government (i.e. central, state and local government and social security funds, if/as and where relevant), and includes: the provision of social protection in the form of benefits in kind to help households meet the cost of housing; administration, operation or support of such social protection schemes; and benefits in kind, such as payments made on a temporary or long-term basis to help tenants with rent costs, payments to alleviate the current housing costs of owner-occupiers, and the provision of low-cost or social housing.
+> Total general government expenditure classified under COFOG function 10.6 ('Social Protection: Housing').
 
 #### C3 — Health
 
 **C3_1 · Government and compulsory contributory health insurance expenditure on health per person**
-> Government/compulsory health insurance expenditure on health. Data refer to total government and/or compulsory health insurance spending on health (all functions and providers). See OECD Health Statistics (https://www.oecd.org/els/health-systems/health-data.htm) for country-specific notes and sources and details on methodology.
+> Total government and/or compulsory health insurance spending on health (all functions and providers).
 
-**C3_2 · Children less than one year old who have received three doses of the combined diphteria-tetanus-pertussis (DPT) vaccine**
-> Percentage of children under one year old who have received three doses of the combined diphteria-tetanus-pertussis vaccine (DTP). Data refer to the percentage of children under one year old who have received three doses of the combined diphteria-tetanus-pertussis vaccine (DTP) in a given year. See OECD Health Statistics (https://www.oecd.org/els/health-systems/health-data.htm) for country-specific notes and sources and details on methodology.
+**C3_2 · Children less than one year old who have received three doses of the DPT vaccine**
+> Percentage of children under one year old who have received three doses of the combined diphtheria-tetanus-pertussis vaccine.
 
 **C3_3 · Children less than one year old who have received at least one dose of measles-containing vaccine**
-> Percentage of children under one year old who have received at least one dose of measles-containing vaccine in a given year.. Data refer to the percentage of children under one year old who have received at least one dose of measles-containing vaccine in a given year. See OECD Health Statistics (https://www.oecd.org/els/health-systems/health-data.htm) for country-specific notes and sources and details on methodology.
+> Percentage of children under one year old who have received at least one dose of measles-containing vaccine in a given year.
 
 #### C4 — Education and Care
 
 **C4_1 · Public expenditure on early childhood education and care per child**
-> Public expenditure on early childhood education and care. Public expenditure on early childhood education and care covers public spending towards formal day-care services (e.g. crèches, day care centres, and family day care, generally aimed at children aged 0 to 2, inclusive) and pre-primary education services (including kindergartens and day-care centres which usually provide an educational content as well as traditional care for children aged from 3 to 5, inclusive). Data are adjusted for cross-national differences in the age of entry into compulsory/primary education. Local governments often play a key role in financing, and sometimes provide childcare services. This spending is well recorded in Nordic countries, but in some other (often federal) countries, it is not properly captured in the data and it is much more difficult to get a good view of public support for childcare across such countries. This is because local governments may use different funding streams to finance childcare services, for example, non-earmarked general block-grants, as in Canada (no data presented here), or because information on spending by local governments on childcare is not reported to national authorities, for example, in Switzerland (no data presented here).
+> Public spending towards formal day-care services and pre-primary education services.
 
-**C4_2 · Typical net childcare costs for parents using centre-based care, two children in full-time care, two-earner couple on low earnings**
-> Typical net childcare costs for parents using centre-based care, two children in full-time care, two-earner couple on low earnings. Data reflect the net cost (gross fees less childcare benefits/rebates and tax deductions, plus any resulting changes in other taxes and benefits following the use of childcare) of full-time care in a typical childcare centre for a two-child (age 2 and 3) couple family, where both parents are in full-time employment on low earnings. 'Full-time' care is defined as care for at least 40 hours per week. 'Low earnings' refers to 67% of national average earnings. In countries where local authorities regulate childcare fees, childcare settings for a specific sub-national jurisdiction is assumed. See the OECD Tax-Benefit Data Portal (https://www.oecd.org/els/soc/benefits-and-wages/data/) for more information on the OECD Tax-Benefit Model methodology.
+**C4_2 · Typical net childcare costs for parents using centre-based care**
+> Net cost of full-time care in a typical childcare centre for a two-child couple family, both parents in full-time employment on low earnings (67% of national average).
 
-**C4_3 · Students to teaching staff in pre-primary education services (public and private), based on full-time equivalents**
-> Ratio of students to teaching staff pre-primary education services (public and private), based on full-time equivalents. Data refer to the the (full-time equivalent) number of children enrolled in pre-primary education (ISCED 02) services per (full-time equivalent) member of teaching (or comparable practitioner) staff. Data exclude teachers' aides and other non-teaching contact staff.
+**C4_3 · Students to teaching staff ratio in pre-primary education**
+> Full-time equivalent number of children enrolled in pre-primary education per full-time equivalent teaching staff member.
 
-**C4_4 · Public expenditure on primary, secondary and post-secondary non-tertiary education per full-time equivalent student**
-> Public expenditure on primary, secondary and post-secondary non-tertiary education. Data refer to final general government expenditure on education institutions (public and private institutions). Final public expenditure includes direct public purchases of educational resources and payments to educational institutions. It excludes public transfers to the private sector (e.g. scholarships and tutition fee subsidies), and transfers from the international sector. See OECD Education at a Glance (https://www.oecd.org/education/education-at-a-glance/) for more detail.
+**C4_4 · Public expenditure on primary, secondary and post-secondary non-tertiary education per FTE student**
+> Final general government expenditure on education institutions (public and private).
 
-**C4_5 · Public expenditure on ancillary education services in primary, secondary and post-secondary non-tertiary education per full-time equivalent student**
-> Public expenditure on ancillary education services in primary, secondary and post-secondary non-tertiary education. Data refer to final general government expenditure on ancillary education services in primary, secondary and post-secondary non-tertiary education. Ancillary services are services provided by educational institutions that are peripheral to their main educational mission. The main component of ancillary services is student welfare. In primary, secondary and post-secondary non-tertiary education, student welfare services include meals, school health services, and transportation to and from school. See OECD Education at a Glance (https://www.oecd.org/education/education-at-a-glance/) for more detail.
+**C4_5 · Public expenditure on ancillary education services per FTE student**
+> Final general government expenditure on ancillary services (meals, school health, transportation) in primary, secondary and post-secondary non-tertiary education.
 
-**C4_6 · Students to teaching staff in secondary education services (public and private), based on full-time equivalents**
-> Ratio of students to teaching staff in secondary education services (public and private), based on full-time equivalents. Data refer to the the (full-time equivalent) number of students enrolled in secondary education (ISCED 2-3) services per (full-time equivalent) member of teaching staff.
+**C4_6 · Students to teaching staff ratio in secondary education**
+> Full-time equivalent number of students enrolled in secondary education per full-time equivalent teaching staff member.
 
 #### C5 — Environment
 
 **C5_1 · General government expenditure on environment protection per person**
-> General government expenditure on environment protection. Data refer to total general government expenditure classified under Classification Of the Functions Of Government (COFOG) function 05 ('Environment protection'). It covers expenditure at all levels of government (i.e. central, state and local government and social security funds, if/as and where relevant), and includes total spending on waste management (i.e. the collection, treatment and disposal of waste), waste water management (e.g. sewage systems), activities relating to pollution abatement, and activities relating to the protection of biodiversity and landscape, as well as research and development related to environment protection.
+> Total general government expenditure classified under COFOG function 05 ('Environment protection'), covering waste management, waste water management, pollution abatement, and biodiversity protection.
