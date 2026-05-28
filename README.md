@@ -38,7 +38,7 @@ The posetic library is a Python port of the R package `poseticDataAnalysis`:
 
 ### Posetic Separation
 
-The **symmetric separation** $\text{Sep}(i,j)$ measures how far apart two countries rank on average across all possible linear extensions of the poset:
+The **Posetic separation** $\text{Sep}(i,j)$ measures how far apart two countries rank on average across all possible linear extensions of the poset:
 
 $$\text{Sep}(i,j) = \frac{\mathbb{E}_{\sigma \sim \text{LE}(P)}\bigl[|\sigma(i) - \sigma(j)|\bigr]}{n - 1} \in [0,1]$$
 
