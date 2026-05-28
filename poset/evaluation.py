@@ -227,9 +227,12 @@ class _BubleyDyerEvalGen:
 
             if prev_avgs is not None:
                 max_delta = max(
-                    float(np.max(np.abs(ca - pa)))
-                    for ca, pa in zip(current_avgs, prev_avgs)
-                    if ca is not None and pa is not None
+                    (
+                        float(np.max(np.abs(ca - pa)))
+                        for ca, pa in zip(current_avgs, prev_avgs)
+                        if ca is not None and pa is not None
+                    ),
+                    default=float("inf"),
                 )
 
                 if output_every_sec is not None:

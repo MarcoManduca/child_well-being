@@ -5,7 +5,7 @@ Partially Ordered Set (POSet) analysis library.
 Ported from the R package poseticDataAnalysis by Avellone, De Capitani, Fattore.
 
 Added some implementations to work with Polars dataframes and handle `null` values as uncertainty intervals in the hyperlattice.
-Authors: Simone Caglio supported by Clode Code (Python port), 
+Authors: Simone Caglio supported by Claude Code (Python port),
 Original authors of poseticDataAnalysis R package: Michele Fattore, Luca De Capitani, Andrea Avellone, Andrea Suardi.
 
 Reference:
@@ -60,7 +60,7 @@ from .fuzzy import (
     FuzzySeparation, FuzzySeparationMinMax, FuzzySeparationProbabilistic,
 )
 from .embedding import (
-    BidimentionalPosetRepresentation,
+    BidimensionalPosetRepresentation,
     OptimalBidimensionalEmbedding,
 )
 from .from_polars import poset_from_polars, interval_summary

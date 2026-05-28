@@ -2,7 +2,7 @@
 embedding.py - Bidimensional representation of multidimensional ordinal binary data.
 
 Implements:
-  - BidimentionalPosetRepresentation  : representation from a given variable priority
+  - BidimensionalPosetRepresentation  : representation from a given variable priority
   - OptimalBidimensionalEmbedding     : find the optimal representation over all permutations
 
 Reference:
@@ -24,7 +24,7 @@ import numpy as np
 # Public API
 # ---------------------------------------------------------------------------
 
-def BidimentionalPosetRepresentation(
+def BidimensionalPosetRepresentation(
     profile: np.ndarray,
     weights: np.ndarray,
     variables_priority: List[int],
@@ -55,7 +55,7 @@ def BidimentionalPosetRepresentation(
     >>> profiles = np.array([[0,0,0,0],[1,0,0,0],[0,1,0,0],[1,1,0,0]])
     >>> weights = np.array([10, 5, 7, 3])
     >>> vp = [0, 1, 2, 3]
-    >>> result = BidimentionalPosetRepresentation(profiles, weights, vp)
+    >>> result = BidimensionalPosetRepresentation(profiles, weights, vp)
     """
     profile = np.asarray(profile, dtype=np.int8)
     weights = np.asarray(weights, dtype=np.float64)
@@ -114,7 +114,7 @@ def OptimalBidimensionalEmbedding(
         'variablesPriority'     : np.ndarray (k!/2, k) of permutations
         'bestLossValue'         : float
         'bestVariablePriority'  : list of int
-        'bestRepresentation'    : same structure as BidimentionalPosetRepresentation
+        'bestRepresentation'    : same structure as BidimensionalPosetRepresentation
 
     Examples
     --------

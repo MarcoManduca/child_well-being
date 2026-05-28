@@ -287,6 +287,7 @@ def _resolve_indicator_cols(df, indicator_cols, id_col_actual, time_col, area_co
         in (
             pl.Int8, pl.Int16, pl.Int32, pl.Int64,
             pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64,
+            pl.Float32, pl.Float64,
         )
     ]
     if not cols:

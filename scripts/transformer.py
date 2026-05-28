@@ -1,3 +1,9 @@
+"""
+transformer.py — Data transformation utilities for the child well-being pipeline.
+
+Provides min-max normalisation, ordinal discretisation, and MRP-based cascade
+aggregation at two levels (sub-dimension → dimension → macro-dimension).
+"""
 
 from __future__ import annotations
 
@@ -9,6 +15,7 @@ import polars as pl
 
 from poset.from_polars import poset_from_polars
 from poset.mrp import ExactMRP, BubleyDyerMRPGenerator
+
 
 def normalize_minmax(
     df: pl.DataFrame,
@@ -40,7 +47,6 @@ def normalize_minmax(
         DataFrame original + normalized columns with suffix.
         All _norm columns are oriented: 1 = maximum well-being, 0 = minimum well-being.
     """
-
     exprs = []
 
     for col_name, meta in indicators.items():
@@ -56,7 +62,6 @@ def normalize_minmax(
             col_min = df[col_name].drop_nulls().min()
             col_max = df[col_name].drop_nulls().max()
 
-        # Avoid division by zero if range is zero
         if col_max == col_min:
             exprs.append(pl.lit(0.5).alias(f"{col_name}{suffix}"))
             continue
@@ -64,22 +69,20 @@ def normalize_minmax(
         denom = col_max - col_min
 
         if meta["direction"] == "negative":
-            # Inverse: (max - x) / range
             normalized = (pl.lit(col_max) - col) / denom
         else:
-            # Direct: (x - min) / range
             normalized = (col - pl.lit(col_min)) / denom
 
-        # Clamp to [0, 1] (useful if robust quantiles are used)
         normalized = normalized.clip(0.0, 1.0)
-
         exprs.append(normalized.alias(f"{col_name}{suffix}"))
 
     return df.with_columns(exprs)
 
+
 def get_norm_columns(df: pl.DataFrame, suffix: str = "_norm") -> list[str]:
     """Returns a list of column names in the DataFrame that end with the specified suffix."""
     return [c for c in df.columns if c.endswith(suffix)]
+
 
 def discretize(
     df: pl.DataFrame,
@@ -108,7 +111,6 @@ def discretize(
     -------
     pl.DataFrame with discretized columns.
     """
-
     if columns is None:
         columns = get_norm_columns(df, normalized_suffix)
 
@@ -128,7 +130,6 @@ def discretize(
         else:
             raise ValueError(f"Method '{method}' not supported. Use 'quantile' or 'equal_width'.")
 
-        # Building when/then expression for assigning levels
         col = pl.col(col_name)
         expr = pl.when(col.is_null()).then(None)
 
@@ -141,7 +142,8 @@ def discretize(
         exprs.append(expr.alias(out_name))
 
     return df.with_columns(exprs)
- 
+
+
 def cascade_aggregate(
     df: pl.DataFrame,
     indicators: Dict[str, dict],
@@ -156,7 +158,7 @@ def cascade_aggregate(
 ) -> Dict:
     """
     Level 1 cascade on **pre-discretised** data.
- 
+
     Parameters
     ----------
     df : pl.DataFrame
@@ -176,7 +178,7 @@ def cascade_aggregate(
     mrp_converge_tol : float, optional
     seed : int
     verbose : bool
- 
+
     Returns
     -------
     dict with keys:
@@ -187,15 +189,14 @@ def cascade_aggregate(
     """
     df = _ensure_id_col(df, col1, col2, unit_sep)
     units = df["__unit_id__"].to_list()
- 
-    # Detect available indicators
+
     available = [k for k in indicators if k in df.columns]
     print(f"Available indicators: {len(available)} / {len(indicators)}")
     print(f"  {available}")
     config = {k: indicators[k] for k in available}
     groups = _group_indicators(config)
     print(groups)
- 
+
     if verbose:
         print(f"Units: {len(units)}")
         print(f"Available indicators: {len(available)}")
@@ -204,14 +205,14 @@ def cascade_aggregate(
             action = "sub-poset" if len(cols) > 1 else "pass-through"
             print(f"  [{typ}] {sub}: {cols} → {action}")
         print()
- 
+
     sub_poset_details = {}
     results_by_type: Dict[str, Dict[str, np.ndarray]] = {
         "indicator": {},
         "public_expenditure": {},
     }
     pass_through = {}
- 
+
     for (typ, sub), cols in sorted(groups.items()):
         if len(cols) == 1:
             values = df[cols[0]].to_numpy().astype(np.float64)
@@ -222,7 +223,7 @@ def cascade_aggregate(
         else:
             if verbose:
                 print(f"  [{typ}] {sub}: building sub-poset on {cols}...")
- 
+
             scores = _build_sub_poset_mrp_ordinal(
                 df=df,
                 units=units,
@@ -233,16 +234,16 @@ def cascade_aggregate(
                 seed=seed,
                 verbose=verbose,
             )
- 
+
             results_by_type[typ][sub] = scores["mrp_scores"]
             sub_poset_details[(typ, sub)] = scores
- 
+
             if verbose:
                 print(f"    → {scores['n_extensions']} extensions, "
                       f"score range: [{scores['mrp_scores'].min():.3f}, "
                       f"{scores['mrp_scores'].max():.3f}]")
 
-   # Build output DataFrames (with min-max normalisation)
+    # Build output DataFrames (with min-max normalisation)
     id_columns = _extract_id_columns(df, col1, col2)
     output = {}
     for typ in ("indicator", "public_expenditure"):
@@ -268,8 +269,8 @@ def cascade_aggregate(
             if typ in output and isinstance(output[typ], pl.DataFrame):
                 dims = [c for c in output[typ].columns if c not in id_set]
                 print(f"[{typ}] Final dimensions: {len(dims)} → {dims}")
- 
-    return output
+
+    return {**output, "sub_poset_details": sub_poset_details, "pass_through": pass_through}
 
 
 def cascade_level2(
@@ -289,12 +290,12 @@ def cascade_level2(
     """
     Level 2 cascade: group subdimension MRP scores (continuous [0,1])
     into macro-dimensions.
- 
+
     Steps per group:
       1. Discretise the MRP scores into ordinal levels
       2. Build sub-poset
       3. Compute MRP score
- 
+
     Parameters
     ----------
     df : pl.DataFrame
@@ -308,7 +309,7 @@ def cascade_level2(
         Discretisation levels for the MRP scores (default: 4).
     discretize_method : str
     mrp_mode, mrp_n_samples, mrp_converge_tol, seed, verbose : ...
- 
+
     Returns
     -------
     dict with keys:
@@ -317,10 +318,10 @@ def cascade_level2(
     """
     if groups is None:
         groups = LEVEL2_INDICATOR_GROUPS
- 
+
     df = _ensure_id_col(df, col1, col2, unit_sep)
     units = df["__unit_id__"].to_list()
- 
+
     if verbose:
         print(f"Level 2 cascade: {len(units)} units")
         print(f"Macro-dimensions: {len(groups)}")
@@ -333,18 +334,18 @@ def cascade_level2(
                 msg += f"  (missing: {missing})"
             print(msg)
         print()
- 
+
     details = {}
     macro_scores: Dict[str, np.ndarray] = {}
- 
+
     for name, cols in groups.items():
         present = [c for c in cols if c in df.columns]
- 
+
         if not present:
             if verbose:
                 print(f"  {name}: SKIPPED (no columns available)")
             continue
- 
+
         if len(present) == 1:
             values = df[present[0]].to_numpy().astype(np.float64)
             macro_scores[name] = values
@@ -353,17 +354,15 @@ def cascade_level2(
         else:
             if verbose:
                 print(f"  {name}: discretising + sub-poset on {present}...")
- 
-            # Discretise continuous MRP scores → ordinal
+
             df_disc = _discretize_columns(df, present, n_levels, discretize_method)
             ord_cols = [f"{c}_ord" for c in present]
- 
-            # Build a temporary df with ordinal values
+
             df_ord = df_disc.select(
                 [pl.col("__unit_id__")]
                 + [pl.col(oc).cast(pl.Int32).alias(c) for oc, c in zip(ord_cols, present)]
             )
- 
+
             scores = _build_sub_poset_mrp_ordinal(
                 df=df_ord,
                 units=units,
@@ -374,39 +373,38 @@ def cascade_level2(
                 seed=seed,
                 verbose=verbose,
             )
- 
+
             macro_scores[name] = scores["mrp_scores"]
             details[name] = scores
- 
+
             if verbose:
                 print(f"    → {scores['n_extensions']} extensions, "
                       f"score range: [{scores['mrp_scores'].min():.3f}, "
                       f"{scores['mrp_scores'].max():.3f}]")
- 
-    # Build output
+
     id_columns = _extract_id_columns(df, col1, col2)
     data = dict(id_columns)
     for name, values in macro_scores.items():
         data[name] = values
- 
+
     df_out = pl.DataFrame(data)
- 
+
     if verbose:
         id_set = set(id_columns.keys())
         dims = [c for c in df_out.columns if c not in id_set]
         print(f"\nLevel 2 output: {len(dims)} macro-dimensions → {dims}")
- 
+
     return {
         "aggregated": df_out,
         "details": details,
     }
- 
- 
+
+
 # ===================================================================
 # Internal helpers
 # ===================================================================
- 
-def _ensure_id_col(df, col1, col2, unit_sep):
+
+def _ensure_id_col(df: pl.DataFrame, col1: Optional[str], col2: Optional[str], unit_sep: str) -> pl.DataFrame:
     """Build __unit_id__ from col1 + sep + col2 (internal use only)."""
     if "__unit_id__" in df.columns:
         return df
@@ -422,8 +420,8 @@ def _ensure_id_col(df, col1, col2, unit_sep):
             pl.col(col1).cast(pl.Utf8).alias("__unit_id__")
         )
     raise ValueError("Cannot build unit ID. Provide col1 (and optionally col2).")
- 
- 
+
+
 def _extract_id_columns(
     df: pl.DataFrame,
     col1: Optional[str],
@@ -436,8 +434,8 @@ def _extract_id_columns(
     if col2 is not None and col2 in df.columns:
         out[col2] = df[col2].to_list()
     return out
- 
- 
+
+
 def _group_indicators(
     config: Dict[str, dict],
 ) -> Dict[Tuple[str, str], List[str]]:
@@ -449,8 +447,8 @@ def _group_indicators(
         key = (typ, sub)
         groups.setdefault(key, []).append(code)
     return groups
- 
- 
+
+
 def _discretize_columns(
     df: pl.DataFrame,
     cols: List[str],
@@ -472,17 +470,17 @@ def _discretize_columns(
             breakpoints = [vmin + step * i for i in range(1, n_levels)]
         else:
             raise ValueError(f"Unknown method: {method}")
- 
+
         col = pl.col(col_name)
         expr = pl.when(col.is_null()).then(None)
         for i, bp in enumerate(breakpoints):
             expr = expr.when(col <= bp).then(i + 1)
         expr = expr.otherwise(n_levels)
         exprs.append(expr.alias(f"{col_name}_ord"))
- 
+
     return df.with_columns(exprs)
- 
- 
+
+
 def _build_sub_poset_mrp_ordinal(
     df: pl.DataFrame,
     units: List[str],
@@ -495,20 +493,15 @@ def _build_sub_poset_mrp_ordinal(
 ) -> Dict:
     """
     Build a sub-poset from **already ordinal** columns and return MRP scores.
- 
+
     No discretisation is performed — columns are expected to contain
     integer ordinal values.
     """
-    from poset.from_polars import poset_from_polars
-    from poset.mrp import ExactMRP, BubleyDyerMRPGenerator
- 
-    # Select ID + indicator columns, ensure Int32
     sub_df = df.select(
         [pl.col("__unit_id__")]
         + [pl.col(c).cast(pl.Int32) for c in cols]
     )
- 
-    # Build poset
+
     result = poset_from_polars(
         sub_df,
         id_col="__unit_id__",
@@ -516,10 +509,9 @@ def _build_sub_poset_mrp_ordinal(
         higher_is_better=True,
         dominance_mode="certain_or_possible",
     )
- 
+
     poset = result["poset_certain"]
- 
-    # Compute MRP
+
     if mrp_mode == "exact":
         try:
             mrp_result = ExactMRP(poset)
@@ -540,16 +532,14 @@ def _build_sub_poset_mrp_ordinal(
         else:
             mrp_result = gen.update(n=mrp_n_samples)
         method_used = "approximate"
- 
-    # Extract MRP scores (row-mean of MRP matrix)
+
     mrp_matrix = mrp_result["MRP"]
     scores_by_element = mrp_matrix.mean(axis=1)
     elements = mrp_result["elements"]
- 
-    # Align scores with input unit order
+
     elem_to_score = {e: float(s) for e, s in zip(elements, scores_by_element)}
     aligned_scores = np.array([elem_to_score.get(u, np.nan) for u in units])
- 
+
     return {
         "mrp_scores": aligned_scores,
         "mrp_matrix": mrp_matrix,
