@@ -534,7 +534,7 @@ def _build_sub_poset_mrp_ordinal(
         method_used = "approximate"
 
     mrp_matrix = mrp_result["MRP"]
-    scores_by_element = mrp_matrix.mean(axis=1)
+    scores_by_element = mrp_matrix.mean(axis=0)
     elements = mrp_result["elements"]
 
     elem_to_score = {e: float(s) for e, s in zip(elements, scores_by_element)}

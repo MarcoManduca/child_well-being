@@ -332,13 +332,15 @@ class _BubleyDyerMRPGen:
 
     def mrp_score(self) -> Dict[str, float]:
         """
-        Average MRP score per element (row-mean of MRP matrix).
+        Average MRP score per element (column-mean of MRP matrix).
 
-        Higher score → the element tends to dominate more others.
+        MRP[i,j] = P(j dominates i), so column j mean = P(j dominates a random
+        element) = domination score of j.  Higher score → element dominates more
+        others → better performer.
         Returns a dict ``{element_name: score}``.
         """
         m = self.mrp
-        scores = m.mean(axis=1)
+        scores = m.mean(axis=0)
         return {
             e: float(scores[i])
             for i, e in enumerate(self.poset.elements)
