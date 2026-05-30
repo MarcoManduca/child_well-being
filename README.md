@@ -3,6 +3,7 @@
 Analysis of child well-being indicators across OECD countries using **Partially Ordered Sets (POSets)**.  
 Rather than collapsing multi-dimensional indicators into a single composite index, the project preserves incomparability between countries and studies their structural relationships through posetic methods.
 
+---
 
 ## Authors
 
@@ -26,15 +27,56 @@ Two observation years: **2015** and **2018**.
 
 ### Partially Ordered Sets (POSets)
 
-A POSet models a set of countries under a **component-wise dominance relation**: country $A$ dominates country $B$ if $A$ performs at least as well as $B$ on **every** indicator. Countries that differ in at least one direction are *incomparable* — a distinction that composite indexes erase.
+A POSet models a set of countries under a **component-wise dominance relation**: country $A$ dominates country $B$ if $A$ performs at least as well as $B$ on **every** indicator. Countries that differ in at least one direction are *incomparable*, a distinction that composite indexes erase.
 
 Null values in the data are not imputed. Instead, they are treated as **structural uncertainty**: each unit with missing values occupies an interval $[\text{lo}, \text{hi}]$ in the hyperlattice, supporting `certain`, `possible`, and `certain_or_possible` dominance modes.
 
-The posetic library is a Python port of the R package `poseticDataAnalysis`:
+The posetic library is a Python port of the R package `poseticDataAnalysis`
+
+References:
+> Fattore M., Alaimo L.S. (2023).  
+> *A partial order toolbox for building synthetic indicators of sustainability with ordinal data*  
+> Socio-Economic Planning Sciences. [doi:10.1016/j.seps.2023.101623](https://doi.org/10.1016/j.seps.2023.101623)
 
 > Fattore M., De Capitani L., Avellone A., Suardi A. (2024).  
 > *A fuzzy posetic toolbox for multi-criteria evaluation on ordinal data systems.*  
 > Annals of Operations Research. [doi:10.1007/s10479-024-06352-3](https://doi.org/10.1007/s10479-024-06352-3)
+
+---
+
+### MRP Cascade Aggregation
+
+Individual indicators are aggregated into macro-dimensions through a two-level **Mutual Ranking Probability (MRP) cascade**, implemented in `scripts/transformer.py`.
+
+**MRP score** for a unit $i$ is defined as its average dominance probability across all pairwise comparisons:
+
+$$\text{MRP}_{score}(i) = \frac{1}{n-1} \sum_{j \neq i} P_{\sigma \sim \text{LE}(P)}[\sigma(i) > \sigma(j)]$$
+
+The cascade proceeds in two levels:
+
+1. **Level 1 (`cascade_aggregate`)** — for each subdimension group, a sub-POSet is built on the individual indicators and MRP scores are computed. Groups with a single indicator are passed through directly. The result is one continuous score per unit per subdimension.
+
+2. **Level 2 (`cascade_level2`)** — subdimension MRP scores are discretised and grouped into macro-dimensions. A second POSet is built at this level and final MRP scores are derived.
+
+This produces the `indicators_macro_dim` dataset variants used in notebooks 050–090.
+
+---
+
+### Minimum Dominating Set
+
+The **Minimum Dominating Set (MDS)** of a POSet is the smallest subset $D \subseteq P$ such that every element is either in $D$ or is dominated by at least one element of $D$:
+
+$$D \subseteq P : \forall\, p \in P,\; p \in D \;\lor\; \exists\, d \in D : d \succ p$$
+
+In the context of this project, each country is a poset element and country $A$ dominates $B$ when $A$ performs at least as well on every indicator. The MDS corresponds to the set of **maximal elements** — countries that no other country consistently outperforms.
+
+The size and composition of the MDS is a structural descriptor of the poset:
+- **Small MDS** (1–2 countries) → clear dominance hierarchy, low incomparability.
+- **Large MDS** → high structural incomparability, no single country excels across all dimensions.
+
+Notebook 070 reports and visualises the MDS for each dataset and year.
+
+---
 
 ### Posetic Separation
 
@@ -65,9 +107,10 @@ Countries are embedded in 2D/3D space via **Classical Multi-Dimensional Scaling 
 | [`030_data_transformer.ipynb`](notebooks/030_data_transformer.ipynb) | Normalization and discretization of indicators |
 | [`040_data_partitioner.ipynb`](notebooks/040_data_partitioner.ipynb) | Partition by year (2015 / 2018) and domain; produce all `040_*.parquet` files |
 | [`050_Poset_creator.ipynb`](notebooks/050_Poset_creator.ipynb) | Build POSets from all partitions → `data/050_posets*.pkl` |
-| [`055_Poset_check.ipynb`](notebooks/055_Poset_check.ipynb) | Cross-language validation of POSet results (Python vs. R reference) |
+| [`054_Poset_check.Rmd`](notebooks/054_Poset_check.Rmd) | R reference implementation (poseticDataAnalysis) for cross-language validation |
+| [`055_Poset_check.ipynb`](notebooks/055_Poset_check.ipynb) | Python-side cross-language validation against the R reference |
 | [`060_Poset_analysis.ipynb`](notebooks/060_Poset_analysis.ipynb) | Analysis of POSet structures: minimals, maximals, MDS width, separation |
-| [`070_MDS_visualization.ipynb`](notebooks/070_MDS_visualization.ipynb) | Bidimensional embedding of countries within each POSet |
+| [`070_MDS_visualization.ipynb`](notebooks/070_MDS_visualization.ipynb) | Minimum Dominating Set analysis and visualisation for each POSet |
 | [`080_dominance_matrices.ipynb`](notebooks/080_dominance_matrices.ipynb) | Certain / possible dominance heatmaps and posetic separation matrices per dataset |
 | [`090_MDS_projection.ipynb`](notebooks/090_MDS_projection.ipynb) | cMDS + Procrustes projection using posetic separation: country trajectories 2015 → 2018 |
 
@@ -78,6 +121,12 @@ Countries are embedded in 2D/3D space via **Classical Multi-Dimensional Scaling 
 | `indicators_macro_dim` | 3, 4, 5 | Child outcome macro-dimensions |
 | `indicators_dim_discrete` | 3, 4 | Individual indicators |
 | `public_expenditure_dim_discrete` | 3, 4 | Public expenditure by category |
+
+### `scripts/` Module
+
+| Module | Content |
+|---|---|
+| `transformer.py` | `normalize_minmax` — directed min-max normalisation; `discretize` — ordinal discretisation (quantile or equal-width); `cascade_aggregate` — Level 1 MRP cascade (indicators → subdimensions); `cascade_level2` — Level 2 MRP cascade (subdimensions → macro-dimensions) |
 
 ### `poset/` Library
 
