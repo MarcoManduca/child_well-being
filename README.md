@@ -46,9 +46,9 @@ $$\text{MRP}_{score}(i) = \frac{1}{n-1} \sum_{j \neq i} P_{\sigma \sim \text{LE}
 
 The cascade proceeds in two levels:
 
-1. **Level 1 (`cascade_aggregate`)** — a sub-POSet is built for each subdimension group and MRP scores are computed. Single-indicator groups are passed through directly. Output: one continuous score per unit per subdimension.
+1. **Level 1 (`cascade_aggregate`)** — a sub-POSet is built for each subdimension group and MRP scores are computed. Single-indicator groups are passed through directly. Output: one continuous score per unit per macro-dimension.
 
-2. **Level 2 (`cascade_level2`)** — subdimension MRP scores are discretised and a second POSet is built per macro-dimension. Output: the `indicators_macro_dim` dataset variants used in notebooks 050–090.
+2. **Level 2 (`cascade_level2`)** — macro-dimension MRP scores are discretised and a second POSet is built per macro-area. Output: the `indicators_macro_dim` dataset variants used in notebooks 050–090.
 
 All indicators are normalised so that **higher values always represent better outcomes** before entering the cascade. Negative-direction indicators (e.g. poverty rate, infant mortality) are inverted during the normalisation step.
 
@@ -155,9 +155,9 @@ Requires Python 3.11+. The `poset/` library requires no installation — noteboo
 
 27 indicators selected from the OECD CWB framework, split into two analytical domains. All negative-direction indicators are inverted during normalisation so that **higher ordinal level always means better outcome**.
 
-### Domain 1 — Child Well-being (20 indicators)
+### Child Well-being (20 indicators)
 
-| Code | Indicator | Dir | Subdimension |
+| Code | Indicator | Dir | Macro-dimension |
 |---|---|---|---|
 | A1_2 | Children experiencing severe housing deprivation | − | A1 · Material conditions |
 | A2_1 | Infant mortality rate | − | A2 · Health |
@@ -180,9 +180,9 @@ Requires Python 3.11+. The `poset/` library requires no installation — noteboo
 | C4_2 | Net childcare costs for parents (low-earning couple, 2 children) | − | C4 · Education & childcare |
 | C4_6 | Student-to-teacher ratio in secondary education | − | C4 · Education & childcare |
 
-### Domain 2 — Public Expenditure (7 indicators)
+### Public Expenditure (7 indicators)
 
-| Code | Indicator | Dir | Category |
+| Code | Indicator | Dir | Macro-dimension |
 |---|---|---|---|
 | C2_1 | Gov. expenditure on housing & community amenities per person | + | C2 · Housing & culture |
 | C2_2 | Gov. expenditure on recreation, culture & religion per person | + | C2 · Housing & culture |

@@ -2,13 +2,13 @@
 
 This project uses a dual-license structure.
 
-## Code — GPL-3.0
+## Code - GPL-3.0
 
 All source code in `poset/` is licensed under the **GNU General Public License**, as it is a derivative work of the [poseticDataAnalysis](https://cran.r-project.org/package=poseticDataAnalysis) R package by A. Arcagni and M. Fattore (GPL>=2).
 
 Full text: [LICENSE-GPL](LICENSE-GPL)
 
-## Documentation, Notebooks & Data — CC BY-SA 4.0
+## Documentation, Notebooks & Data - CC BY-SA 4.0
 
 All other content (notebooks, data, figures, documentation) is licensed
 under **Creative Commons Attribution-ShareAlike 4.0 International**.
